@@ -20,7 +20,7 @@ if [ ! -d autoconf ] ; then
     mkdir autoconf
 fi
 
-while getopts ":hdprtcis" opt; do
+while getopts ":hdprtci" opt; do
   case $opt in
     h)
       help;
@@ -36,9 +36,6 @@ while getopts ":hdprtcis" opt; do
       ;;
     i)
       CONF_OPTS="$CONF_OPTS --enable-inline=no"
-      ;;
-    s)
-      CONF_OPTS="$CONF_OPTS --enable-hash-statistics"
       ;;
     \?)
       echo "Invalid option: -$OPTARG" >&2
@@ -61,7 +58,7 @@ fi
 make -j$count
 
 OPTIND=0
-while getopts ":hdprtcis" opt; do
+while getopts ":hdprtci" opt; do
   case $opt in
     t) 
       make dist-bzip2

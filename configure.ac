@@ -76,40 +76,6 @@ fi
 
 ######## program options #########
 
-#mmap /* currently not implemented */
-AC_ARG_ENABLE(
-mmap,
-[ --enable-mmap=ARG enable mmap insetead of fread (default=yes) ],
-[enable_mmap=$enableval],
-[enable_mmap=yes]
-)
-if test "$enable_mmap" = "yes"; then
-AC_DEFINE(USE_MMAP,1,[mmap option])
-fi
-
-#hash_statistics
-AC_ARG_ENABLE(
-hash-statistics,
-[ --enable-hash-statistics=ARG enable hash_statistics (default=no) ],
-[enable_hash_statistics=$enableval],
-[enable_hash_statistics=no]
-)
-if test "$enable_hash_statistics" = "yes"; then
-AC_DEFINE(HASH_STATISTICS,1,[hash_statistics option])
-fi
-
-AC_ARG_ENABLE(
-use_trie,
-[ --enable-use_trie=ARG enable use_trie (default=no) ],
-[enable_use_trie=$enableval],
-[enable_use_trie=no]
-)
-if test "$enable_use_trie" = "yes"; then
-AC_DEFINE(USE_TRIE,1,[use_trie option])
-else
-AC_DEFINE(USE_HASH,1,[use_hash option])
-fi
-
 #use_truncate_bit_encoding
 AC_ARG_ENABLE(
 inline,
