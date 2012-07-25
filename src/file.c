@@ -1,4 +1,6 @@
 #include "file.h"
+#include <dirent.h>
+#include <sys/stat.h>
 
 int file_size(const char *filename)
 {

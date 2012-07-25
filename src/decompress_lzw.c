@@ -1,4 +1,6 @@
 #include "decompress_lzw.h"
+#include "bitio.h"
+#include "shared.h"
 
 #define CODE_MIN_MAX_BITS  12
 #define CODE_MAX_MAX_BITS  26
@@ -34,15 +36,14 @@ static const uint32_t table_sizes[15] =
 
 typedef struct lzw_context_dec
 {
-    uint32_t* table_parent;
-    uint8_t* table_symbol;
-    FILE     *f_dst;
-    bitio    *b_src;
+    uint32_t*      table_parent;
+    uint8_t*       table_symbol;
+    FILE*          f_dst;
+    struct bitio*  b_src;
 
     uint8_t  code_max_bits;
     uint32_t code_max, table_size, table_max;
 
-    uint8_t  binary_file;
     uint8_t  current_code_bits;
     uint32_t current_max_code;
     uint32_t current_code;
@@ -100,7 +101,7 @@ lzw_context_dec *lzw_context_dec_new(const char *src_file, const char *dst_file)
     if ( !(ctx = calloc(1, sizeof(struct lzw_context_dec))) ||
          !(ctx->f_dst = fopen(dst_file, "wb")) ||
          !(ctx->b_src = bitio_open(src_file, O_RDONLY)) )
-        goto abort_new_context_dec;  /* Yeah, I'm a bad person */
+        goto abort_new_context_dec;
 
     /* lettura header magic */
     if (bitio_read(ctx->b_src, &data, 24) != 0)
@@ -135,12 +136,6 @@ lzw_context_dec *lzw_context_dec_new(const char *src_file, const char *dst_file)
         goto abort_new_context_dec;
     ctx->table_max = (uint32_t)data;
 
-    /*  lettura binary */
-    if (bitio_read(ctx->b_src, &data, 1) != 0)
-        goto abort_new_context_dec;
-    ctx->binary_file = (uint8_t)data;
-    printf("* binary mode         : %d\n", ctx->binary_file);
-
     lzw_context_dec_reset(ctx);
 
     return ctx;
@@ -159,6 +154,7 @@ static void table_insert(lzw_context_dec *ctx, int prefix_code, unsigned char sy
 
 static FORCE_INLINE int buffering_write(lzw_context_dec *ctx, char *buf, int32_t *pos, unsigned char* symbol)
 {
+    /* se il buffer è pieno scriviamo il blocco di byte sul file decompresso. */
     if (*pos == WR_BUFFER_SIZE)
     {
         if ((fwrite(buf, sizeof(char), *pos, ctx->f_dst)) <= 0)
@@ -191,180 +187,16 @@ void truncated_binary_dec(lzw_context_dec *ctx, uint64_t *data)
         *data -= u; 
     }
 }
-
 #endif
 
-/* TODO togliere tutti gli exit(1) e sostituire con GOTO a errore con ret -1*/
-void read_fixed_code(lzw_context_dec *ctx, uint64_t* data) 
-{
-    if (bitio_read(ctx->b_src, data, 1) != 0)
-        exit(1);
-
-    switch (ctx->current_code_bits)
-    {
-        case 7:
-        case 8:
-        case 9:
-        case 10:
-        case 11:
-        case 12:
-        case 13:
-            if (*data == (uint64_t)1)
-            {
-                if (bitio_read(ctx->b_src, data, 8) != 0)
-                    exit(1);
-            }
-            else
-            {
-                #ifdef USE_TRUNCATE_BIT_ENCODING
-                truncated_binary_dec(ctx, data);
-                #else
-                if (bitio_read(ctx->b_src, data, ctx->current_code_bits) != 0)
-                    exit(1);
-                #endif
-                break;
-            }
-            ctx->truncate_code++;
-            break;
-        case 14:
-        case 15:
-        case 16:
-        case 17:
-            if (*data == (uint64_t)1) // 12 bit
-            {
-                if (bitio_read(ctx->b_src, data, 1) != 0)
-                    exit(1);
-
-                if (*data == (uint64_t)1) // 8 bit
-                {
-                    if (bitio_read(ctx->b_src, data, 8) != 0)
-                        exit(1);
-                }
-                else
-                {
-                    if (bitio_read(ctx->b_src, data, 12) != 0)
-                        exit(1);
-                }
-            }
-            else
-            {
-                #ifdef USE_TRUNCATE_BIT_ENCODING
-                truncated_binary_dec(ctx, data);
-                #else
-                if (bitio_read(ctx->b_src, data, ctx->current_code_bits) != 0)
-                    exit(1);
-                #endif
-                break;
-            }
-            ctx->truncate_code++;
-            break;
-        case 18:
-        case 19:
-        case 20:
-        case 21:
-            if (*data == (uint64_t)1) // 16 bit
-            {
-                if (bitio_read(ctx->b_src, data, 1) != 0)
-                    exit(1);
-
-                if (*data == (uint64_t)1) // 12 bit
-                { 
-                    if (bitio_read(ctx->b_src, data, 1) != 0)
-                        exit(1);
-
-                    if (*data == (uint64_t)1) // 8 bit
-                    {
-                        if (bitio_read(ctx->b_src, data, 8) != 0)
-                            exit(1);
-                    }
-                    else
-                    {
-                        if (bitio_read(ctx->b_src, data, 12) != 0)
-                            exit(1);
-                    }
-                }
-                else
-                {
-                    if (bitio_read(ctx->b_src, data, 16) != 0)
-                        exit(1); 
-                }
-            }
-            else 
-            {
-                #ifdef USE_TRUNCATE_BIT_ENCODING
-                truncated_binary_dec(ctx, data);
-                #else
-                if (bitio_read(ctx->b_src, data, ctx->current_code_bits) != 0)
-                    exit(1);
-                #endif
-                break;
-            }
-            ctx->truncate_code++;
-            break;
-        case 22:
-        case 23:
-        case 24:
-        default: 
-            if (*data == (uint64_t)1) // 20 bit
-            {
-                if (bitio_read(ctx->b_src, data, 1) != 0)
-                    exit(1);
-
-                if (*data == (uint64_t)1) // 16 bit
-                {
-                    if (bitio_read(ctx->b_src, data, 1) != 0)
-                        exit(1);
-
-                    if (*data == (uint64_t)1) // 12 bit
-                    {
-                        if (bitio_read(ctx->b_src, data, 1) != 0)
-                            exit(1);
-
-                        if (*data == (uint64_t)1) // 8 bit
-                        {
-                            if (bitio_read(ctx->b_src, data, 8) != 0)
-                                exit(1); 
-                        }
-                        else
-                            if (bitio_read(ctx->b_src, data, 12) != 0)
-                                exit(1);
-                    }
-                    else
-                        if (bitio_read(ctx->b_src, data, 16) != 0)
-                            exit(1); 
-                }
-                else
-                    if (bitio_read(ctx->b_src, data, 20) != 0)
-                        exit(1);
-            }
-            else 
-            {
-                #ifdef USE_TRUNCATE_BIT_ENCODING
-                truncated_binary_dec(ctx, data);
-                #else
-                if (bitio_read(ctx->b_src, data, ctx->current_code_bits) != 0)
-                    exit(1);
-                #endif
-                break;
-            }
-            ctx->truncate_code++;
-            break;
-    }
-}
-
 void FORCE_INLINE get_code(lzw_context_dec *ctx, uint64_t* data)
-{
-    if (ctx->binary_file)
-        read_fixed_code(ctx, data);
-    else
-    {
-        #ifdef USE_TRUNCATE_BIT_ENCODING
-        truncated_binary_dec(ctx, data);
-        #else
-        if (bitio_read(ctx->b_src, data, ctx->current_code_bits) != 0)
-            exit(1);
-        #endif
-    }
+{    
+#ifdef USE_TRUNCATE_BIT_ENCODING
+    truncated_binary_dec(ctx, data);
+#else
+    if (bitio_read(ctx->b_src, data, ctx->current_code_bits) != 0)
+        exit(1);
+#endif
 }
 
 /********* decompress function *********/
@@ -374,7 +206,7 @@ int decompress_lzw(const char *src_file, const char *dst_file)
     uint64_t data;
     lzw_context_dec *ctx = NULL;
 
-    static char wr_buffer[WR_BUFFER_SIZE];
+    static char wr_buffer[WR_BUFFER_SIZE]; /* il buffer */
     int32_t wr_buffer_pos = 0;
 
     if (!(ctx = lzw_context_dec_new(src_file, dst_file)))
@@ -443,22 +275,14 @@ int decompress_lzw(const char *src_file, const char *dst_file)
         if (++(ctx->cnt_code) == ctx->table_max) /* resetting table */
         {
             lzw_context_dec_reset(ctx);
-
-            if (ctx->binary_file)
-            {
-                read_fixed_code(ctx, &data);
-                ctx->new_code = (uint32_t)data;
-            }
-            else
-            {
-                #ifdef USE_TRUNCATE_BIT_ENCODING
-                truncated_binary_dec(ctx, &data);
-                #else
-                if (bitio_read(ctx->b_src, &data, ctx->current_code_bits) != 0)
-                    exit(1);
-                #endif
-                ctx->old_code = (uint32_t)data;
-            }
+            
+#ifdef USE_TRUNCATE_BIT_ENCODING
+            truncated_binary_dec(ctx, &data);
+#else
+            if (bitio_read(ctx->b_src, &data, ctx->current_code_bits) != 0)
+                exit(1);
+#endif
+            ctx->old_code = (uint32_t)data;
 
             buffering_write(ctx, wr_buffer, &wr_buffer_pos, (unsigned char*) &ctx->old_code); /* first code is a character */
         }

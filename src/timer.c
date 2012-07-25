@@ -1,5 +1,8 @@
 #include "timer.h"
 
+#include <stdio.h>
+#include <stdint.h>
+
 double timer_diff(timer *time)
 { 
   struct timeval diff;
@@ -7,7 +10,7 @@ double timer_diff(timer *time)
   diff.tv_sec  = time->stop.tv_sec - time->start.tv_sec ;
   diff.tv_usec = time->stop.tv_usec - time->start.tv_usec;
 
-  return (double)(diff.tv_sec + (double)diff.tv_usec / (double)1000000); /* freebsd CLOCKS_PER_SEC = 128 ?! */
+  return (double)(diff.tv_sec + (double)diff.tv_usec / (double)1000000); 
 }
 
 void timer_start(timer *time)
@@ -20,7 +23,6 @@ void timer_stop(timer *time)
     gettimeofday(&time->stop, NULL);
 }
 
-/* made april fool's day :) */
 void time2human(double seconds)
 {
     int value = 0, i;
@@ -49,7 +51,7 @@ void time2human(double seconds)
                 printf("s");
 
             printf(" ");
-            seconds -= conv[i] * value; /* I don't like mod */
+            seconds -= conv[i] * value;
         }
     }
     printf("\n");

@@ -21,27 +21,3 @@ void *my_calloc(size_t n_elem, size_t size)
     }
     return p;
 }
-/*
-bool info(const char *fmt, ...)
-{
-    char* buffer;
-    int ret;
-
-    assert(fmt);
-
-    va_list ap;
-    va_start(ap, fmt);
-    ret = vasprintf(&buffer, fmt, ap);
-    va_end(ap);
-
-    if (ret)
-    {
-        printf("* %s\n", buffer);
-        free(buffer);
-        return true;
-    }
-
-    perror("vasprintf");
-    return false;
-}
-*/

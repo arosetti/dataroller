@@ -1,16 +1,11 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
 #include <getopt.h>
-#include <unistd.h>
-#include <stdbool.h>
-
-#include "file.h"
-#include "timer.h"
+#include <sys/mman.h> /* mlockall */
 
 #include "compress_lzw.h"
 #include "decompress_lzw.h"
+#include "file.h"
+#include "timer.h"
 
 #define ACTION_UNDEFINED  -1
 #define ACTION_COMPRESS    0
@@ -37,7 +32,6 @@ int usage(int argc, char **argv)
     " -o, --output      <file>   : output file\n"
     " -r, --ratio       <0..14>  : select compression level\n"
     " -f, --force                : enable overwrite of files\n"
-    " -b, --binary               : enable binary mode\n"
     "     --debug                : enable debug messages\n"
     "     --no-verbose           : disable verbose messages\n" /* TODO controlli di output messaggi...*/
     "\n"
@@ -54,7 +48,6 @@ int main(int argc, char **argv)
 
     static int no_verbose_flag = 0;
     static int debug_flag = 0;
-    static int binary_mode_flag = 0;
     int force_flag = 0;
 
     int8_t action = ACTION_UNDEFINED;
@@ -68,7 +61,6 @@ int main(int argc, char **argv)
         {
             {"debug",      no_argument, &debug_flag, 1},
             {"no-verbose", no_argument, &no_verbose_flag, 1},
-            {"binary",     no_argument,         0, 'b'},
             {"force",      no_argument,         0, 'f'},
             {"help",       no_argument,         0, 'h'},
             {"compress",   required_argument,   0, 'c'},
@@ -94,10 +86,6 @@ int main(int argc, char **argv)
 
             case 'f':
                 force_flag = 1;
-            break;
-
-            case 'b':
-                binary_mode_flag = 1;
             break;
 
             case 'c':
@@ -206,7 +194,6 @@ int main(int argc, char **argv)
 
             printf("* filename            : %s\n", input_file);
             printf("* ratio               : %d\n", ratio);
-            printf("* binary mode         : %d\n", binary_mode_flag);
             #ifdef USE_TRUNCATE_BIT_ENCODING
             printf("* encoding            : truncate bit\n");
             #else
@@ -228,7 +215,7 @@ int main(int argc, char **argv)
             printf("\n\ncompressing.... \"%s\" => \"%s\" \n\n", input_file, output_file);
 
             timer_start(&tm);
-            compress_lzw(input_file, output_file, ratio, binary_mode_flag);
+            compress_lzw(input_file, output_file, ratio);
             timer_stop(&tm);
             printf("\n* elapsed time        : ");
             time_diff = timer_diff(&tm);

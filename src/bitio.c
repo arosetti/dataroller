@@ -1,28 +1,25 @@
 #include "bitio.h"
+#include "shared.h"
 
-/*    ,__                   __
-    '~~****Nm_    _mZ*****~~
-            _8@mm@K_
-           W~@`  '@~W
-          ][][    ][][
-    gz    'W'W.  ,W`W`    es
-  ,Wf    gZ****MA****Ns    VW.
- gA`   ,Wf     ][     VW.   'Ms
-Wf    ,@`      ][      '@.    VW
-M.    W`  _mm_ ][ _mm_  'W    ,A
-'W   ][  i@@@@i][i@@@@i  ][   W`
- !b  @   !@@@@!][!@@@@!   @  d!
-  VWmP    ~**~ ][ ~**~    YmWf
-    ][         ][         ][
-  ,mW[         ][         ]Wm.
- ,A` @  ,gms.  ][  ,gms.  @ 'M.
- W`  Yi W@@@W  ][  W@@@W iP  'W
-d!   'W M@@@A  ][  M@@@A W`   !b
-@.    !b'V*f`  ][  'V*f`d!    ,@
-'Ms    VW.     ][     ,Wf    gA`
-  VW.   'Ms.   ][   ,gA`   ,Wf
-   'Ms    'V*mmWWmm*f`    gA`
-*/
+#ifdef __linux__               /* endian conversions */
+#ifndef _BSD_SOURCE
+    #define _BSD_SOURCE
+#endif
+  #include <endian.h>
+#else 
+  #include <sys/endian.h>
+#endif
+
+/* buffer size in bytes (must be 8 multiple) */
+#define BUFFER_BYTE_SIZE 8192 /* 2^13 */
+
+#define BLOCK_BIT_SIZE_SHIFT_MOD  63
+
+/* block number of the buffer */
+#define N_BLOCKS (BUFFER_BYTE_SIZE / 8)
+
+#define HTOLE htole64
+#define LETOH le64toh
 
 static uint64_t lmask[65] = 
 {
@@ -72,11 +69,10 @@ struct bitio
     mode_t mode;
     uint32_t pos;
     int len;
-    BLOCK_TYPE buf[N_BLOCKS];
+    uint64_t buf[N_BLOCKS];
 };
 
-
-static inline void safe_close(int fd)
+void safe_close(int fd)
 {
     while(close(fd) < 0)
     {
@@ -88,7 +84,7 @@ static inline void safe_close(int fd)
     }
 }
 
-static inline size_t safe_read(int fd, uint8_t *buf, size_t count) /* count is in byte, therefore buf is uint8_t* */
+size_t safe_read(int fd, uint8_t *buf, size_t count) /* count is in byte, therefore buf is uint8_t* */
 {
     size_t done = 0, ret;
 
@@ -114,7 +110,7 @@ static inline size_t safe_read(int fd, uint8_t *buf, size_t count) /* count is i
     return done;
 }
 
-static inline void safe_write(int fd, const uint8_t *buf, size_t count) /* count is in byte, therefore buf is uint8_t* */
+void safe_write(int fd, const uint8_t *buf, size_t count) /* count is in byte, therefore buf is uint8_t* */
 {
     size_t done = 0, ret;
 
@@ -135,10 +131,10 @@ static inline void safe_write(int fd, const uint8_t *buf, size_t count) /* count
     }
 }
 
-bitio *bitio_open(const char *filename, mode_t mode)
+struct bitio *bitio_open(const char *filename, mode_t mode)
 {
     int fd;
-    bitio *p;
+    struct bitio *p;
 
     assert(filename);
 
@@ -165,48 +161,39 @@ bitio *bitio_open(const char *filename, mode_t mode)
     return p;
 }
 
-int bitio_close(bitio *p)
+int bitio_close(struct bitio *p)
 {
     uint32_t res;
 
     assert(p);
     
-    res = p->pos/BLOCK_BIT_SIZE + ((p->pos & BLOCK_BIT_SIZE_SHIFT_MOD /*% BLOCK_BIT_SIZE*/)?1:0);
-
-    /*res = (p->pos % BLOCK_BIT_SIZE != 0)?
-          (((p->pos & ~(BLOCK_BIT_SIZE - 1)) + BLOCK_BIT_SIZE) >> 3):
-          p->pos>>3;*/
-
+    res = p->pos/64 + ((p->pos & BLOCK_BIT_SIZE_SHIFT_MOD)?1:0);
     if (res && p->mode != O_RDONLY)
     {
-        #if BLOCK_BYTE_SIZE != 1
         for (int i = 0; i < res; i++)
             p->buf[i] = HTOLE(p->buf[i]);
-        #endif
-        safe_write(p->fd, (uint8_t*)p->buf, res*BLOCK_BYTE_SIZE); /* flushing buffer */
+        safe_write(p->fd, (uint8_t*)p->buf, res*8); /* flushing buffer */
     }
 
     safe_close(p->fd);
-    memset(p, 0, sizeof(bitio));
+    memset(p, 0, sizeof(struct bitio));
     free(p);
 
     return 0;
 }
 
-static inline void bitio_check_flush(bitio *p)
+static inline void bitio_check_flush(struct bitio *p)
 {
-    if (p->pos == N_BLOCKS*BLOCK_BIT_SIZE)
+    if (p->pos == N_BLOCKS*64)
     {
-        #if BLOCK_BYTE_SIZE != 1
         for (uint32_t i = 0; i < N_BLOCKS; i++)
             p->buf[i] = HTOLE(p->buf[i]);
-        #endif
-        safe_write(p->fd, (uint8_t*)p->buf, N_BLOCKS*BLOCK_BYTE_SIZE);
+        safe_write(p->fd, (uint8_t*)p->buf, N_BLOCKS*8);
         p->pos = 0;
     }
 }
 
-int bitio_read(bitio *p, uint64_t *data, uint8_t len)
+int bitio_read(struct bitio *p, uint64_t *data, uint8_t len)
 {
     uint8_t res, k;
     uint32_t ofs;
@@ -220,42 +207,40 @@ int bitio_read(bitio *p, uint64_t *data, uint8_t len)
     {
         if (p->pos == p->len*8)
         {
-            p->len = safe_read(p->fd, (uint8_t*)p->buf, N_BLOCKS*BLOCK_BYTE_SIZE);
+            p->len = safe_read(p->fd, (uint8_t*)p->buf, N_BLOCKS*8);
             if (!p->len) // end of file
                 return 1;
 
-            #if BLOCK_BYTE_SIZE != 1
-            if (p->len % BLOCK_BYTE_SIZE) /* p->len must be multiple of block */
+            if (p->len % 8) /* p->len must be multiple of block */
                 return -1;
-            for (uint32_t i = 0; i < p->len/BLOCK_BYTE_SIZE; i++)
+            for (uint32_t i = 0; i < p->len/8; i++)
                 p->buf[i] = LETOH(p->buf[i]);
-            #endif
             p->pos = 0;
         }
 
-        ofs = p->pos / BLOCK_BIT_SIZE;
-        k = (uint8_t)(p->pos & BLOCK_BIT_SIZE_SHIFT_MOD /*% BLOCK_BIT_SIZE*/);
-        res = BLOCK_BIT_SIZE - k;     
+        ofs = p->pos / 64;
+        k = (uint8_t)(p->pos & BLOCK_BIT_SIZE_SHIFT_MOD);
+        res = 64 - k;     
 
         if (len >= res)
         {
             len -= res;
-            *data |= (uint64_t)(((BLOCK_TYPE)p->buf[ofs] & (BLOCK_TYPE)lmask[res]) << len);
+            *data |= (p->buf[ofs] & lmask[res]) << len;
             p->pos += (uint32_t)res;
         }
         else
         {
             res -= len;
-            *data |= (uint64_t)(((BLOCK_TYPE)p->buf[ofs] >> res) & (BLOCK_TYPE)lmask[len]);
+            *data |= (p->buf[ofs] >> res) & lmask[len];
             p->pos += (uint32_t)len;
-            return 0; /* è più efficiente, che impostare una variabile a zero e poi fare l'if del while */
+            return 0;
         }
     }
 
     return 0;
 }
 
-int bitio_write(bitio *p, uint64_t data, uint8_t len)
+int bitio_write(struct bitio *p, uint64_t data, uint8_t len)
 {
     uint8_t res, k;
     uint32_t ofs;
@@ -265,57 +250,57 @@ int bitio_write(bitio *p, uint64_t data, uint8_t len)
 
     while (len > 0)
     {
-        ofs = p->pos / BLOCK_BIT_SIZE;
-        k = (uint8_t)(p->pos & BLOCK_BIT_SIZE_SHIFT_MOD /*% BLOCK_BIT_SIZE*/);
-        res = BLOCK_BIT_SIZE - k;
-        p->buf[ofs] &= (BLOCK_TYPE)hmask[k];
+        ofs = p->pos / 64;
+        k = (uint8_t)(p->pos & BLOCK_BIT_SIZE_SHIFT_MOD);
+        res = 64 - k;
+        p->buf[ofs] &= hmask[k];
         if (len >= res)
         {
             len -= res;
-            p->buf[ofs] |= (uint64_t)((data >> len) & (BLOCK_TYPE)lmask[res]);
+            p->buf[ofs] |= (data >> len) & lmask[res];
             p->pos += (uint32_t)res;
         }
         else
         {
             res -= len;
-            p->buf[ofs] |= (uint64_t)((data & (BLOCK_TYPE)lmask[len]) << res);
+            p->buf[ofs] |= (data & lmask[len]) << res;
             p->pos += (uint32_t)len;
             bitio_check_flush(p);
-            return 0; /* è più efficiente, che impostare una variabile a zero e poi fare l'if del while */
+            return 0;
         }
         bitio_check_flush(p);
     }
     return 0;
 }
 
-int bitio_write1(bitio *p)
+int bitio_write1(struct bitio *p)
 {
     uint8_t res, k;
     uint32_t ofs;
 
     assert(p);
     
-    ofs = p->pos / BLOCK_BIT_SIZE;
-    k = (uint8_t)(p->pos & BLOCK_BIT_SIZE_SHIFT_MOD /*% BLOCK_BIT_SIZE*/);
-    res = BLOCK_BIT_SIZE - k;
-    p->buf[ofs] &= (BLOCK_TYPE)hmask[k];
-    p->buf[ofs] |= (BLOCK_TYPE)1 << (--res);
+    ofs = p->pos / 64;
+    k = (uint8_t)(p->pos & BLOCK_BIT_SIZE_SHIFT_MOD);
+    res = 64 - k;
+    p->buf[ofs] &= hmask[k];
+    p->buf[ofs] |= (uint64_t)1 << (--res);
     p->pos++;
 
     bitio_check_flush(p);  
     return 0;
 }
 
-int bitio_write0(bitio *p)
+int bitio_write0(struct bitio *p)
 {
     uint8_t k;
     uint32_t ofs;
 
     assert(p);
 
-    ofs = p->pos / BLOCK_BIT_SIZE;
-    k = (uint8_t)(p->pos & BLOCK_BIT_SIZE_SHIFT_MOD /*% BLOCK_BIT_SIZE*/);
-    p->buf[ofs] &= (BLOCK_TYPE)hmask[k];
+    ofs = p->pos / 64;
+    k = (uint8_t)(p->pos & BLOCK_BIT_SIZE_SHIFT_MOD);
+    p->buf[ofs] &= hmask[k];
     p->pos++;
 
     bitio_check_flush(p);

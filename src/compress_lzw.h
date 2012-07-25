@@ -1,8 +1,7 @@
 #ifndef _COMPRESS_LZW_H_
 #define _COMPRESS_LZW_H_
+#include <stdint.h> 
 
-#include "bitio.h"
-
-int compress_lzw(const char *, const char *, uint8_t, bool);
+int compress_lzw(const char *, const char *, uint8_t);
 
 #endif

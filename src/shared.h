@@ -1,15 +1,16 @@
 #ifndef _SHARED_H_
 #define _SHARED_H_
 
+/* TODO spostare dove servono */
 #include <unistd.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <assert.h>
 #include <stdint.h>
 #include <stdarg.h>   /* va_start va_end */
-#include <sys/mman.h> /* mlockall */
+#include <string.h>            /* memset */
+#include <assert.h>
 
 #ifdef USE_INLINE
     #if defined(_MSC_VER)
@@ -28,17 +29,13 @@
 #ifndef __STDC_FORMAT_MACROS
   #define __STDC_FORMAT_MACROS
 #endif
-#include <inttypes.h>
 
-#include "../config.h"
+#define PACKAGE_NAME "dataroller"
+#define PACKAGE_STRING "dataroller 0.1.4"
+#define PACKAGE_VERSION "0.1.4"
 
-#if defined(__GNUC__) && defined(USE_LIKELY)
-    #define likely(x)       __builtin_expect((x), 1)
-    #define unlikely(x)     __builtin_expect((x), 0)
-#else
-    #define likely(x)       x
-    #define unlikely(x)     x
-#endif
+#define USE_TRUNCATE_BIT_ENCODING 1
+#define DEBUG 1
 
 #define max(a,b) \
 ({ __typeof__ (a) _a = (a); \
@@ -52,7 +49,5 @@
 
 void *my_malloc(size_t);
 void *my_calloc(size_t, size_t);
-
-bool info(const char *fmt, ...);
 
 #endif
