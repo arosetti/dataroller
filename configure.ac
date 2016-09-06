@@ -2,7 +2,6 @@ AC_PREREQ(2.61)
 AC_INIT([dataroller], [0.1.4])
 AC_PROG_CC
 AC_CONFIG_MACRO_DIR([m4])
-AC_CONFIG_AUX_DIR(autoconf)
 
 AM_INIT_AUTOMAKE([-Wall no-define foreign])
 
